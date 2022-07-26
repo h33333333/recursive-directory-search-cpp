@@ -82,7 +82,7 @@ int search_in_path(const std::string &path, const char *query) {
 int main(int argc, char **argv) {
   if (argc < 3) {
     std::cout
-        << "Not enough arguments. Usage: ./recursive_file_search <PATH> <QUERY>"
+        << "Not enough arguments. Usage: ./recursive-directory-search <PATH> <QUERY>"
         << std::endl;
     return 1;
   }
