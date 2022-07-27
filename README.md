@@ -4,6 +4,8 @@
 After cloning this repo:
 ```sh
 $ cd recursive-directory-search
+$ mkdir cmake-build
+$ cd cmake-build
 $ cmake ../
 $ cmake --build .
 ```
