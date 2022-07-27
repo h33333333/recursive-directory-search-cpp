@@ -8,30 +8,58 @@ std::vector<std::string> RESULTS;
 std::mutex RESULTS_MUTEX;
 
 int search_in_path(const std::string &path, const char *query) {
-  if (std::filesystem::is_directory(path)) {
-    std::vector<std::thread> threads;
-    std::filesystem::directory_iterator iterator;
-    try {
-      iterator = std::filesystem::directory_iterator(path);
-    } catch (const std::__1::__fs::filesystem::filesystem_error &err) {
-      if (err.code().value() == 13) {
-        std::cout << "Permission denied: " << path << std::endl;
-      } else if (err.code().value() == 1) {
-        std::cout << "Operation not permitted: " << path << std::endl;
-      } else {
-        std::cout << "Unexpected filesystem_error during directory iteration: "
-                  << err.what() << std::endl;
-      }
-      return 1;
-    } catch (...) {
-      std::cout << "Unexpected error during directory iteration" << std::endl;
-      return 1;
+  // Catch errors which happen during getting file attributes
+  bool is_directory;
+  try {
+    is_directory = std::filesystem::is_directory(path);
+  } catch (std::__1::__fs::filesystem::filesystem_error &err) {
+    if (err.code().value() == 1) {
+      std::cout << "Operation not permitted: " << path << std::endl;
     }
-    for (const auto &entry : iterator) {
+    return 1;
+  } catch (...) {
+    std::cout << "Unexpected error while checking file attributes: " << path
+              << std::endl;
+  }
+  if (is_directory) {
+    std::vector<std::thread> threads;
+    // Saving new paths to the variable helps to prevent deadlock
+    // when we iterate over a big directory and reach maximum amount of open files
+    // and all of them are directories (directory_iterator creates file handle)
+    std::vector<std::string> paths;
+    while (true) {
+      try {
+        std::filesystem::directory_iterator iterator(path);
+        for (const auto &entry : iterator) {
+          paths.emplace_back(entry.path());
+        }
+        break;
+      } catch (const std::__1::__fs::filesystem::filesystem_error &err) {
+        if (err.code().value() == 13) {
+          std::cout << "Permission denied: " << path << std::endl;
+        } else if (err.code().value() == 1) {
+          std::cout << "Operation not permitted: " << path << std::endl;
+        } else if (err.code().value() == 24) {
+          // This error happens when there are too many opened files, so we just
+          // wait for other threads to finish
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+          continue;
+        } else {
+          std::cout
+              << "Unexpected filesystem_error during directory iteration: "
+              << err.what() << std::endl;
+        }
+        return 1;
+      } catch (...) {
+        std::cout << "Unexpected error during directory iteration" << std::endl;
+        return 1;
+      }
+    }
+    for (const auto &new_path : paths) {
       std::thread thread;
       while (true) {
         try {
-          thread = std::thread(search_in_path, entry.path(), query);
+          thread = std::thread(search_in_path, new_path, query);
           break;
         } catch (const std::__1::system_error &err) {
           // This error happens when we reach max amount of threads
@@ -81,9 +109,9 @@ int search_in_path(const std::string &path, const char *query) {
 
 int main(int argc, char **argv) {
   if (argc < 3) {
-    std::cout
-        << "Not enough arguments. Usage: ./recursive-directory-search <PATH> <QUERY>"
-        << std::endl;
+    std::cout << "Not enough arguments. Usage: ./recursive-directory-search "
+                 "<PATH> <QUERY>"
+              << std::endl;
     return 1;
   }
   const std::string path(argv[1]);
